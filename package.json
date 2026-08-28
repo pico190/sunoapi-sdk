@@ -1,6 +1,6 @@
 {
   "name": "sunoapi-sdk",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Complete, ergonomic Node.js / TypeScript SDK for SunoAPI.org — music, lyrics, sounds, voice, upload, WAV, MIDI, stems, video, mashup, persona, cover and more. Zero runtime dependencies.",
   "keywords": [
     "suno",

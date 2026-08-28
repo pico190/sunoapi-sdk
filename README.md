@@ -414,11 +414,54 @@ import type { GenerateMusicParams, AudioTrack } from 'sunoapi-sdk';
 
 ## Webhooks (callBackUrl)
 
-Every creation method accepts a `callBackUrl`. When the task finishes, SunoAPI
-does a `POST` to that URL with the result. The callback body uses *snake_case*
-(`audio_url`, `task_id`, …) unlike `record-info` which uses *camelCase*
-(`audioUrl`, `taskId`). The SDK covers both cases: poll with `waitFor*`
-or receive the push via webhook.
+Suno requires a `callBackUrl` on every creation call. When the task finishes,
+SunoAPI `POST`s the result to that URL. The callback body uses *snake_case*
+(`audio_url`, `task_id`, `stream_audio_url`, `image_url`, `status`, …) while
+`record-info` uses *camelCase* (`audioUrl`, `taskId`, …).
+
+The SDK untangles all of this for you:
+
+- `suno.handleWebhook(rawBody)` parses and validates the payload and returns a
+  normalized `SunoWebhookEvent` (camelCase).
+- Calling `handleWebhook` **automatically resolves** any in-flight `waitFor*`
+  promise for that `taskId` — so you never have to manually link Suno's push
+  to the code waiting for the result. `waitFor*` races its poller against the
+  webhook, so it returns as soon as *either* arrives.
+
+### Fastify example
+
+```ts
+import Fastify from 'fastify';
+import { SunoAPI } from 'sunoapi-sdk';
+
+const suno = new SunoAPI({ apiKey: process.env.SUNO_API_KEY! });
+const app = Fastify();
+
+// 1) Mount the endpoint Suno will call
+app.post('/suno/webhook', async (request, reply) => {
+  try {
+    suno.handleWebhook(request.body);   // resolves the matching waitFor* promise
+    return reply.code(200).send({ ok: true });
+  } catch {
+    return reply.code(400).send({ ok: false });
+  }
+});
+
+// 2) Generate, passing your public URL as the callback
+const { taskId } = await suno.music.generate({
+  prompt: '[Verse 1] ...', style: 'tech-house', title: 'Gym Fuel',
+  customMode: true, instrumental: false, model: SunoAPI.Model.V5,
+  callBackUrl: 'https://your-app.example.com/suno/webhook',
+});
+
+// 3) Wait — resolves the moment Suno hits your webhook (no manual wiring)
+const track = (await suno.waitForMusic(taskId)).response.sunoData[0];
+console.log(`✅ ${track.title} ready: ${track.audioUrl}`);
+```
+
+> The `callBackUrl` must be publicly reachable by Suno's servers. If you only
+> ever poll and never need the push, you can still pass any URL — but the
+> webhook path is what makes `waitFor*` resolve instantly on completion.
 
 ---
 

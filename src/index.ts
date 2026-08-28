@@ -68,6 +68,12 @@ import {
   VoiceRecordInfo,
 } from './types.js';
 import { SunoAPIError, SunoTaskFailedError, SunoTimeoutError, ERROR_CODES } from './errors.js';
+import {
+  parseWebhook,
+  webhookToMusicRecord,
+  SunoWebhookEvent,
+  SunoWebhookPayload,
+} from './webhooks.js';
 
 /** Options controlling the `waitFor*` polling helpers. */
 export interface WaitOptions {
@@ -230,78 +236,183 @@ export class SunoAPI {
     }
   }
 
-  /** Poll a music task until it succeeds or fails. */
+  /**
+   * Internal registry that lets {@link SunoAPI.handleWebhook} resolve a pending
+   * `waitFor*` promise the moment SunoAPI calls your `callBackUrl`. This is what
+   * lets you `await api.waitForMusic(taskId)` without ever wiring the webhook
+   * payload back into your generation code by hand.
+   */
+  private waiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
+
+  private registerWaiter(taskId: string): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      this.waiters.set(taskId, { resolve, reject });
+    });
+  }
+
+  private settleWaiter(taskId: string, value?: unknown, err?: unknown): void {
+    const w = this.waiters.get(taskId);
+    if (!w) return;
+    this.waiters.delete(taskId);
+    if (err) w.reject(err);
+    else w.resolve(value);
+  }
+
+  /**
+   * Race the poller against a webhook delivery. Whichever settles first wins;
+   * the other path is wired to resolve/reject the same waiter so nothing leaks.
+   */
+  private withWebhook<T>(
+    taskId: string,
+    poller: () => Promise<T>,
+    fromWebhook?: (e: SunoWebhookEvent) => T,
+  ): Promise<T> {
+    const webhook = this.registerWaiter(taskId).then((v) =>
+      fromWebhook ? fromWebhook(v as SunoWebhookEvent) : (v as T),
+    );
+    const poll = poller().then(
+      (v) => {
+        this.settleWaiter(taskId, v);
+        return v;
+      },
+      (e) => {
+        this.settleWaiter(taskId, undefined, e);
+        throw e;
+      },
+    );
+    return Promise.race([poll, webhook]) as Promise<T>;
+  }
+
+  /**
+   * Parse and validate a SunoAPI webhook — the `POST` SunoAPI sends to your
+   * `callBackUrl` when a task finishes — and resolve any pending `waitFor*`
+   * promise for that `taskId`.
+   *
+   * Call this from your Fastify/Express route handler and return `200` to
+   * SunoAPI so it knows the delivery succeeded. You do **not** need to read the
+   * payload yourself: the matching `await api.waitForMusic(taskId)` (or any
+   * other `waitFor*`) unblocks automatically.
+   *
+   * @returns the normalized {@link SunoWebhookEvent}. Throws {@link SunoAPIError}
+   *   if the payload is invalid or reports a non-`200` status.
+   *
+   * @example
+   * ```ts
+   * fastify.post('/suno/webhook', async (request, reply) => {
+   *   try {
+   *     api.handleWebhook(request.body); // resolves the matching waitForMusic
+   *     return reply.code(200).send({ ok: true });
+   *   } catch {
+   *     return reply.code(400).send({ ok: false });
+   *   }
+   * });
+   * ```
+   */
+  handleWebhook(raw: unknown): SunoWebhookEvent {
+    const event = parseWebhook(raw);
+    if (event.taskId) this.settleWaiter(event.taskId, event);
+    return event;
+  }
+
+  /** Poll a music task until it succeeds or fails (resolves early on webhook). */
   waitForMusic(taskId: string, opts: WaitOptions = {}): Promise<MusicGenerationRecord> {
-    return this.poll(
-      () => this.music.getRecordInfo(taskId),
-      (r) => statusState(r.status),
-      opts,
+    return this.withWebhook(
       taskId,
-      'music',
+      () =>
+        this.poll(
+          () => this.music.getRecordInfo(taskId),
+          (r) => statusState(r.status),
+          opts,
+          taskId,
+          'music',
+        ),
+      webhookToMusicRecord,
     );
   }
 
-  /** Poll a lyrics task until it succeeds or fails. */
+  /** Poll a lyrics task until it succeeds or fails (resolves early on webhook). */
   waitForLyrics(taskId: string, opts: WaitOptions = {}): Promise<LyricsGenerationRecord> {
-    return this.poll(
-      () => this.lyrics.getRecordInfo(taskId),
-      (r) => statusState(r.status),
-      opts,
+    return this.withWebhook(
       taskId,
-      'lyrics',
+      () =>
+        this.poll(
+          () => this.lyrics.getRecordInfo(taskId),
+          (r) => statusState(r.status),
+          opts,
+          taskId,
+          'lyrics',
+        ),
     );
   }
 
-  /** Poll a WAV conversion task until it succeeds or fails. */
+  /** Poll a WAV conversion task until it succeeds or fails (resolves early on webhook). */
   waitForWav(taskId: string, opts: WaitOptions = {}): Promise<WavConversionRecord> {
-    return this.poll(() => this.wav.getRecordInfo(taskId), flagState, opts, taskId, 'wav');
+    return this.withWebhook(
+      taskId,
+      () => this.poll(() => this.wav.getRecordInfo(taskId), flagState, opts, taskId, 'wav'),
+    );
   }
 
-  /** Poll a vocal-separation task until it succeeds or fails. */
+  /** Poll a vocal-separation task until it succeeds or fails (resolves early on webhook). */
   waitForSeparation(taskId: string, opts: WaitOptions = {}): Promise<VocalSeparationRecord> {
-    return this.poll(
-      () => this.separation.getRecordInfo(taskId),
-      flagState,
-      opts,
+    return this.withWebhook(
       taskId,
-      'separation',
+      () =>
+        this.poll(() => this.separation.getRecordInfo(taskId), flagState, opts, taskId, 'separation'),
     );
   }
 
-  /** Poll a MIDI generation task until it succeeds or fails. */
+  /** Poll a MIDI generation task until it succeeds or fails (resolves early on webhook). */
   waitForMidi(taskId: string, opts: WaitOptions = {}): Promise<MidiGenerationRecord> {
-    return this.poll(() => this.midi.getRecordInfo(taskId), flagState, opts, taskId, 'midi');
-  }
-
-  /** Poll a music-video task until it succeeds or fails. */
-  waitForVideo(taskId: string, opts: WaitOptions = {}): Promise<MusicVideoRecord> {
-    return this.poll(() => this.video.getRecordInfo(taskId), flagState, opts, taskId, 'video');
-  }
-
-  /** Poll a cover-art task until it succeeds or fails. */
-  waitForCover(taskId: string, opts: WaitOptions = {}): Promise<CoverGenerationRecord> {
-    return this.poll(() => this.cover.getRecordInfo(taskId), flagState, opts, taskId, 'cover');
-  }
-
-  /** Poll a voice-model generation task until it succeeds or fails. */
-  waitForVoice(taskId: string, opts: WaitOptions = {}): Promise<VoiceRecordInfo> {
-    return this.poll(
-      () => this.voice.getRecordInfo(taskId),
-      (r) => statusState(r.status),
-      opts,
+    return this.withWebhook(
       taskId,
-      'voice',
+      () => this.poll(() => this.midi.getRecordInfo(taskId), flagState, opts, taskId, 'midi'),
     );
   }
 
-  /** Poll a voice-validation task until it succeeds or fails. */
-  waitForVoiceValidate(taskId: string, opts: WaitOptions = {}): Promise<VoiceValidateInfo> {
-    return this.poll(
-      () => this.voice.getValidateInfo(taskId),
-      (r) => statusState(r.status),
-      opts,
+  /** Poll a music-video task until it succeeds or fails (resolves early on webhook). */
+  waitForVideo(taskId: string, opts: WaitOptions = {}): Promise<MusicVideoRecord> {
+    return this.withWebhook(
       taskId,
-      'voice-validate',
+      () => this.poll(() => this.video.getRecordInfo(taskId), flagState, opts, taskId, 'video'),
+    );
+  }
+
+  /** Poll a cover-art task until it succeeds or fails (resolves early on webhook). */
+  waitForCover(taskId: string, opts: WaitOptions = {}): Promise<CoverGenerationRecord> {
+    return this.withWebhook(
+      taskId,
+      () => this.poll(() => this.cover.getRecordInfo(taskId), flagState, opts, taskId, 'cover'),
+    );
+  }
+
+  /** Poll a voice-model generation task until it succeeds or fails (resolves early on webhook). */
+  waitForVoice(taskId: string, opts: WaitOptions = {}): Promise<VoiceRecordInfo> {
+    return this.withWebhook(
+      taskId,
+      () =>
+        this.poll(
+          () => this.voice.getRecordInfo(taskId),
+          (r) => statusState(r.status),
+          opts,
+          taskId,
+          'voice',
+        ),
+    );
+  }
+
+  /** Poll a voice-validation task until it succeeds or fails (resolves early on webhook). */
+  waitForVoiceValidate(taskId: string, opts: WaitOptions = {}): Promise<VoiceValidateInfo> {
+    return this.withWebhook(
+      taskId,
+      () =>
+        this.poll(
+          () => this.voice.getValidateInfo(taskId),
+          (r) => statusState(r.status),
+          opts,
+          taskId,
+          'voice-validate',
+        ),
     );
   }
 }
@@ -311,6 +422,7 @@ export default SunoAPI;
 // Convenience re-exports so consumers can `import { SongGenerationModel } from 'sunoapi-sdk'`.
 export * from './types.js';
 export * from './errors.js';
+export * from './webhooks.js';
 export { HttpClient } from './client.js';
 export type { SunoAPIOptions } from './client.js';
 export { MusicResource } from './resources/music.js';
