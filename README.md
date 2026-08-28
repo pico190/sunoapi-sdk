@@ -1,6 +1,6 @@
 # sunoapi-sdk
 
-The official **Node.js / TypeScript** SDK for [SunoAPI.org](https://sunoapi.org) — the simplest and most ergonomic way to generate music, lyrics, sounds, voices, videos and more from code.
+A community-maintained, unofficial **Node.js / TypeScript** SDK for [SunoAPI.org](https://sunoapi.org) — the simplest and most ergonomic way to generate music, lyrics, sounds, voices, videos and more from code.
 
 - ✅ **TypeScript** with full types and JSDoc on every method.
 - ✅ **Zero dependencies**: uses only native Node 18+ `fetch` (plus `FormData`/`Blob`).

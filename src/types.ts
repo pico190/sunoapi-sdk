@@ -1,7 +1,7 @@
 /**
  * Complete type definitions for the SunoAPI SDK.
  *
- * All request/response shapes are derived from the official OpenAPI specs
+ * All request/response shapes are derived from the published OpenAPI specs
  * (suno-api.json, suno-voice-api.json, file-upload-api.json) published at
  * https://docs.sunoapi.org.
  *
