@@ -1,0 +1,50 @@
+{
+  "name": "sunoapi-sdk",
+  "version": "1.0.0",
+  "description": "Complete, ergonomic Node.js / TypeScript SDK for SunoAPI.org — music, lyrics, sounds, voice, upload, WAV, MIDI, stems, video, mashup, persona, cover and more. Zero runtime dependencies.",
+  "keywords": [
+    "suno",
+    "sunoapi",
+    "suno api",
+    "music generation",
+    "ai music",
+    "lyrics",
+    "voice cloning",
+    "sunoupai",
+    "sdk",
+    "typescript"
+  ],
+  "homepage": "https://docs.sunoapi.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sunoapi/sunoapi-sdk-node"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node -e \"require('fs').writeFileSync('dist/cjs/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "build:esm": "tsc -p tsconfig.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}
