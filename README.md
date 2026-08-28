@@ -41,9 +41,17 @@ const suno = new SunoAPI({ apiKey: process.env.SUNO_API_KEY });
 
 Generate a song and wait for it to be ready:
 
+> **`customMode` explained.** When `customMode: true`, `prompt` is used **verbatim as the lyrics** (e.g. text with `[Verse 1]`, `[Chorus]`, `[Intro]` markers) and `style` + `title` are required. When `customMode: false`, `prompt` is a short description and the lyrics are auto-generated (leave `style`/`title` empty).
+
 ```ts
 const { taskId } = await suno.music.generate({
-  prompt: 'A relaxing lo-fi ballad about morning coffee',
+  // With customMode:true, `prompt` is the LYRICS (sung verbatim). Use [Verse]/[Chorus]/[Intro] tags.
+  prompt: `[Intro]
+Morning light on the window pane
+[Verse 1]
+A relaxing lo-fi ballad about morning coffee
+[Chorus]
+Just the two of us and a slow refrain`,
   style: 'lo-fi, chill, acoustic',
   title: 'Morning Coffee',
   customMode: true,
@@ -124,7 +132,9 @@ const { taskId } = await suno.music.extend({
 // Mashup of two already-uploaded audios
 await suno.music.mashup({
   uploadUrlList: ['https://.../a.mp3', 'https://.../b.mp3'],
+  // customMode:true → `style` + `title` required; `prompt` is optional lyrics
   customMode: true,
+  style: 'electronic, uplifting',
   model: SunoAPI.Model.V4_5,
   callBackUrl: 'https://your-webhook.com/suno',
   title: 'My Mix',
@@ -421,7 +431,7 @@ const suno = new SunoAPI({ apiKey: process.env.SUNO_API_KEY! });
 
 // 1) Generate
 const { taskId } = await suno.music.generate({
-  prompt: 'Energetic tech-house for working out',
+  // instrumental:true → no lyrics needed; `prompt` is ignored in Custom Mode
   style: 'tech-house, energetic, driving',
   title: 'Gym Fuel',
   customMode: true,
@@ -506,6 +516,11 @@ a `SunoAPIError` is thrown.
 // Generate a cover of a song from an already-uploaded MP3 (uploadUrl is the upload's downloadUrl)
 const { taskId } = await suno.music.uploadCover({
   uploadUrl: 'https://sunoapiorg.redpandaai.co/.../my-track.mp3',
+  // customMode:true → `prompt` is the lyrics to sing over the cover
+  prompt: `[Verse 1]
+My version of this song goes like this
+[Chorus]
+And the chorus hits a little different now`,
   customMode: true,
   instrumental: false,
   model: SunoAPI.Model.V4_5PLUS,

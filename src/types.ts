@@ -330,8 +330,11 @@ export interface AdvancedMusicControls {
 /** Parameters accepted by every music generation request. */
 export interface GenerateMusicParams extends AdvancedMusicControls {
   /**
-   * Custom Mode enables advanced controls (`style` + `title` required;
-   * `prompt` required when `instrumental` is `false`).
+   * Custom Mode. When `true`, `prompt` is treated as the **lyrics** to be
+   * sung verbatim (e.g. text containing `[Verse 1]`, `[Chorus]`, `[Intro]`
+   * markers) and `style` + `title` are required. When `false`, `prompt` is a
+   * short free-text description and the lyrics are auto-generated; leave
+   * `style`/`title` empty.
    */
   customMode: boolean;
   /** `true` = instrumental (no lyrics). */
@@ -341,8 +344,9 @@ export interface GenerateMusicParams extends AdvancedMusicControls {
   /** Callback URL for completion notifications. */
   callBackUrl: string;
   /**
-   * Description of the desired audio. Required in Custom Mode when
-   * `instrumental` is `false`.
+   * In Custom Mode (`customMode: true`) this is the **lyrics** verbatim
+   * (required unless `instrumental` is `true`). In non-custom mode it is a
+   * short description/idea used to auto-generate the lyrics.
    */
   prompt?: string;
   /** Music style / genre. Required in Custom Mode. */
